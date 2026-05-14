@@ -1,5 +1,8 @@
 # claude-context-sync
 
+[![npm](https://img.shields.io/npm/v/claude-context-sync)](https://www.npmjs.com/package/claude-context-sync)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 MCP server that automatically summarizes and shares context across parallel Claude Code sessions.
 
 When you run multiple Claude Code sessions on different tasks, each session is unaware of what the others are doing. **claude-context-sync** watches your session logs, generates structured summaries on demand, and exposes them as MCP tools — so any session can instantly see what's happening elsewhere.
@@ -90,4 +93,4 @@ npm test
 
 ## License
 
-MIT
+[MIT](LICENSE)
