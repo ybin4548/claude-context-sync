@@ -69,7 +69,7 @@ function parseSummaryJson(
   raw: string,
 ): SessionSummary["summary"] {
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("claude -p 응답에서 JSON을 찾을 수 없음");
+  if (!jsonMatch) throw new Error("No JSON found in claude -p response");
   return JSON.parse(jsonMatch[0]) as SessionSummary["summary"];
 }
 

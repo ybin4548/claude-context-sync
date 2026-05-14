@@ -151,30 +151,34 @@ async function refreshIfNeeded(
 
   const messages = await extractMessages(jsonlPath);
 
-  if (strategy === "full") {
+  try {
+    if (strategy === "full") {
+      const summary = await generateFullSummary(messages, meta, project);
+      await store.writeSummary(summary);
+      scheduler.recordSummarized(sessionId, "full", messageCount);
+      return summary;
+    }
+
+    const existing = await store.readSummary(sessionId);
+    if (existing) {
+      const newMsgCount = await countNewMessages(
+        jsonlPath,
+        existing.updatedAt,
+      );
+      const newMessages = messages.slice(-newMsgCount);
+      const summary = await generateIncrementalSummary(existing, newMessages);
+      await store.writeSummary(summary);
+      scheduler.recordSummarized(sessionId, "incremental", messageCount);
+      return summary;
+    }
+
     const summary = await generateFullSummary(messages, meta, project);
     await store.writeSummary(summary);
     scheduler.recordSummarized(sessionId, "full", messageCount);
     return summary;
+  } catch {
+    return store.readSummary(sessionId);
   }
-
-  const existing = await store.readSummary(sessionId);
-  if (existing) {
-    const newMsgCount = await countNewMessages(
-      jsonlPath,
-      existing.updatedAt,
-    );
-    const newMessages = messages.slice(-newMsgCount);
-    const summary = await generateIncrementalSummary(existing, newMessages);
-    await store.writeSummary(summary);
-    scheduler.recordSummarized(sessionId, "incremental", messageCount);
-    return summary;
-  }
-
-  const summary = await generateFullSummary(messages, meta, project);
-  await store.writeSummary(summary);
-  scheduler.recordSummarized(sessionId, "full", messageCount);
-  return summary;
 }
 
 export async function startServer(config: SyncConfig = DEFAULT_CONFIG) {

@@ -100,7 +100,7 @@ describe("generator", () => {
 
   it("parseSummaryJson은 JSON 없으면 에러", () => {
     expect(() => _parseSummaryJson("no json here")).toThrow(
-      "JSON을 찾을 수 없음",
+      "No JSON found",
     );
   });
 });
