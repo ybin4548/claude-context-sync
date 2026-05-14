@@ -12,6 +12,7 @@
     {
       "registryType": "npm",
       "identifier": "claude-context-sync",
+      "version": "0.1.4",
       "transport": {
         "type": "stdio"
       },
