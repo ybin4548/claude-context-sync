@@ -50,7 +50,7 @@ function callClaude(prompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       "claude",
-      ["-p", "--output-format", "text"],
+      ["-p", "--output-format", "text", "--model", "haiku"],
       { maxBuffer: 1024 * 1024 * 10 },
       (error, stdout, stderr) => {
         if (error) {

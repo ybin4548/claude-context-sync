@@ -87,31 +87,22 @@ export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
     },
     async ({ project }) => {
       const sessions = await watcher.getActiveSessions();
-      const result: Array<{
-        sessionId: string;
-        project: string;
-        changedFiles: string[];
-        decisions: string[];
-      }> = [];
 
-      for (const meta of sessions) {
-        const summary = await refreshIfNeeded(
-          meta.sessionId,
-          meta,
-          scheduler,
-          store,
-          watcher,
-        );
-        if (!summary) continue;
-        if (project && !summary.project.includes(project)) continue;
+      const summaries = await Promise.all(
+        sessions.map((meta) =>
+          refreshIfNeeded(meta.sessionId, meta, scheduler, store, watcher),
+        ),
+      );
 
-        result.push({
-          sessionId: summary.sessionId,
-          project: summary.project,
-          changedFiles: summary.summary.changedFiles,
-          decisions: summary.summary.decisions,
-        });
-      }
+      const result = summaries
+        .filter((s): s is NonNullable<typeof s> => s !== null)
+        .filter((s) => !project || s.project.includes(project))
+        .map((s) => ({
+          sessionId: s.sessionId,
+          project: s.project,
+          changedFiles: s.summary.changedFiles,
+          decisions: s.summary.decisions,
+        }));
 
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
