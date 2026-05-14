@@ -8,12 +8,30 @@ export interface SessionMeta {
 }
 
 export interface SessionMessage {
-  type: "user" | "assistant" | "system" | "attachment";
-  role?: string;
+  type: "user" | "assistant";
   content: string;
   timestamp: string;
   uuid: string;
   parentUuid: string | null;
+}
+
+export interface ContentBlock {
+  type: string;
+  text?: string;
+  thinking?: string;
+}
+
+export interface JournalEntry {
+  type: string;
+  uuid?: string;
+  parentUuid?: string | null;
+  timestamp?: string;
+  sessionId?: string;
+  isSidechain?: boolean;
+  message?: {
+    role: string;
+    content: string | ContentBlock[];
+  };
 }
 
 export interface SessionSummary {
@@ -30,6 +48,12 @@ export interface SessionSummary {
     impactOnOtherSessions: string[];
   };
   raw: string;
+}
+
+export interface IndexEntry {
+  sessionId: string;
+  project: string;
+  updatedAt: string;
 }
 
 export interface SyncConfig {
