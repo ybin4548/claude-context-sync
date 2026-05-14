@@ -1,6 +1,7 @@
 {
   "name": "claude-context-sync",
-  "version": "0.1.3",
+  "version": "0.1.4",
+  "mcpName": "io.github.ybin4548/claude-context-sync",
   "description": "MCP server that automatically summarizes and shares context across parallel Claude Code sessions",
   "type": "module",
   "bin": {
