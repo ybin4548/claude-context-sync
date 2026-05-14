@@ -1,7 +1,7 @@
 {
   "name": "claude-context-sync",
   "version": "0.1.0",
-  "description": "병렬 Claude Code 세션 간 컨텍스트 자동 요약 및 공유 MCP 서버",
+  "description": "MCP server that automatically summarizes and shares context across parallel Claude Code sessions",
   "type": "module",
   "bin": {
     "context-sync": "./dist/cli.js"
@@ -21,6 +21,15 @@
     "context-sharing",
     "ai-agent"
   ],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ybin4548/claude-context-sync.git"
+  },
   "license": "MIT",
   "engines": {
     "node": ">=20.0.0"
