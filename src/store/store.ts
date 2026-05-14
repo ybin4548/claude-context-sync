@@ -81,6 +81,20 @@ export class Store {
     await writeFile(this.indexPath, JSON.stringify(filtered, null, 2), "utf-8");
   }
 
+  async cleanup(activeSessionIds: Set<string>): Promise<string[]> {
+    const index = await this.readIndex();
+    const removed: string[] = [];
+
+    for (const entry of index) {
+      if (!activeSessionIds.has(entry.sessionId)) {
+        await this.deleteSummary(entry.sessionId);
+        removed.push(entry.sessionId);
+      }
+    }
+
+    return removed;
+  }
+
   private async readIndex(): Promise<IndexEntry[]> {
     try {
       const raw = await readFile(this.indexPath, "utf-8");

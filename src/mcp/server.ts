@@ -27,6 +27,9 @@ export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
     "활성 Claude Code 세션 목록과 요약 상태를 반환합니다",
     async () => {
       const sessions = await watcher.getActiveSessions();
+      const activeIds = new Set(sessions.map((s) => s.sessionId));
+      await store.cleanup(activeIds);
+
       const summaries = await store.listSummaries();
       const summaryMap = new Map(summaries.map((s) => [s.sessionId, s]));
 

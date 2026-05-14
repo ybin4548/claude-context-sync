@@ -107,4 +107,19 @@ describe("Store", () => {
   it("deleteSummary on nonexistent session does not throw", async () => {
     await expect(store.deleteSummary("nope")).resolves.not.toThrow();
   });
+
+  it("cleanup removes summaries for inactive sessions", async () => {
+    await store.writeSummary(makeSummary("active-1"));
+    await store.writeSummary(makeSummary("active-2"));
+    await store.writeSummary(makeSummary("dead-1"));
+    await store.writeSummary(makeSummary("dead-2"));
+
+    const activeIds = new Set(["active-1", "active-2"]);
+    const removed = await store.cleanup(activeIds);
+
+    expect(removed.sort()).toEqual(["dead-1", "dead-2"]);
+    expect(await store.listSummaries()).toHaveLength(2);
+    expect(await store.readSummary("dead-1")).toBeNull();
+    expect(await store.readSummary("active-1")).not.toBeNull();
+  });
 });
