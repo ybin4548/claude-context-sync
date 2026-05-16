@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import {
   extractMessages,
   extractRecentMessages,
+  extractStratifiedMessages,
   countNewMessages,
 } from "../src/summarizer/extractor.js";
 
@@ -201,6 +202,80 @@ describe("extractor", () => {
 
     const count = await countNewMessages(path, "2026-01-01T00:30:00Z");
     expect(count).toBe(2);
+  });
+
+  describe("extractStratifiedMessages", () => {
+    function makeEntry(index: number, type: "user" | "assistant"): Record<string, unknown> {
+      return {
+        type,
+        uuid: `${type[0]}${index}`,
+        parentUuid: index > 0 ? `${type[0]}${index - 1}` : null,
+        timestamp: `2026-01-01T${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}:00Z`,
+        message: { role: type, content: `${type} 메시지 ${index}` },
+      };
+    }
+
+    it("returns all messages when under cap", async () => {
+      const path = join(tmpDir, "small.jsonl");
+      const entries = Array.from({ length: 50 }, (_, i) =>
+        makeEntry(i, i % 2 === 0 ? "user" : "assistant"),
+      );
+      await writeFile(path, jsonl(...entries));
+
+      const result = await extractStratifiedMessages(path);
+      expect(result).toHaveLength(50);
+    });
+
+    it("samples large sessions into head + middle users + tail", async () => {
+      const path = join(tmpDir, "large.jsonl");
+      const entries = Array.from({ length: 600 }, (_, i) =>
+        makeEntry(i, i % 2 === 0 ? "user" : "assistant"),
+      );
+      await writeFile(path, jsonl(...entries));
+
+      const result = await extractStratifiedMessages(path, { cap: 300 });
+      expect(result.length).toBeLessThanOrEqual(300);
+      expect(result[0].content).toBe("user 메시지 0");
+      expect(result[result.length - 1].content).toBe("assistant 메시지 599");
+    });
+
+    it("middle section contains only user messages", async () => {
+      const path = join(tmpDir, "large2.jsonl");
+      const entries = Array.from({ length: 600 }, (_, i) =>
+        makeEntry(i, i % 2 === 0 ? "user" : "assistant"),
+      );
+      await writeFile(path, jsonl(...entries));
+
+      const result = await extractStratifiedMessages(path, {
+        headCount: 20,
+        tailCount: 100,
+        cap: 300,
+      });
+
+      const head = result.slice(0, 20);
+      const tail = result.slice(-100);
+      const middle = result.slice(20, -100);
+
+      expect(head).toHaveLength(20);
+      expect(tail).toHaveLength(100);
+      expect(middle.every((m) => m.type === "user")).toBe(true);
+    });
+
+    it("evenly samples when middle user messages exceed budget", async () => {
+      const path = join(tmpDir, "huge.jsonl");
+      const entries = Array.from({ length: 1000 }, (_, i) =>
+        makeEntry(i, "user"),
+      );
+      await writeFile(path, jsonl(...entries));
+
+      const result = await extractStratifiedMessages(path, {
+        headCount: 20,
+        tailCount: 100,
+        cap: 300,
+      });
+
+      expect(result.length).toBeLessThanOrEqual(300);
+    });
   });
 
   it("joins multiple text blocks in assistant content", async () => {

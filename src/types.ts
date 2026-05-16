@@ -69,3 +69,5 @@ export const DEFAULT_CONFIG: SyncConfig = {
   triggerMessageCount: 10,
   fullResummarizeAfter: 4,
 };
+
+export const STRATIFIED_THRESHOLD = 500;
