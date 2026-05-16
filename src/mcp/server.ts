@@ -4,13 +4,17 @@ import { z } from "zod";
 import { Watcher } from "../watcher/watcher.js";
 import { Scheduler } from "../watcher/scheduler.js";
 import { Store } from "../store/store.js";
-import { extractMessages, countNewMessages } from "../summarizer/extractor.js";
+import {
+  extractMessages,
+  extractStratifiedMessages,
+  countNewMessages,
+} from "../summarizer/extractor.js";
 import {
   generateFullSummary,
   generateIncrementalSummary,
 } from "../summarizer/generator.js";
 import type { SessionMeta, SyncConfig } from "../types.js";
-import { DEFAULT_CONFIG } from "../types.js";
+import { DEFAULT_CONFIG, STRATIFIED_THRESHOLD } from "../types.js";
 
 export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
   const scheduler = new Scheduler(config);
@@ -143,11 +147,13 @@ async function refreshIfNeeded(
     return store.readSummary(sessionId);
   }
 
-  const messages = await extractMessages(jsonlPath);
-
   try {
     if (strategy === "full") {
-      const summary = await generateFullSummary(messages, meta, project);
+      const sampled = messageCount > STRATIFIED_THRESHOLD;
+      const messages = sampled
+        ? await extractStratifiedMessages(jsonlPath)
+        : await extractMessages(jsonlPath);
+      const summary = await generateFullSummary(messages, meta, project, sampled);
       await store.writeSummary(summary);
       scheduler.recordSummarized(sessionId, "full", messageCount);
       return summary;
@@ -159,6 +165,7 @@ async function refreshIfNeeded(
         jsonlPath,
         existing.updatedAt,
       );
+      const messages = await extractMessages(jsonlPath);
       const newMessages = messages.slice(-newMsgCount);
       const summary = await generateIncrementalSummary(existing, newMessages);
       await store.writeSummary(summary);
@@ -166,7 +173,11 @@ async function refreshIfNeeded(
       return summary;
     }
 
-    const summary = await generateFullSummary(messages, meta, project);
+    const sampled = messageCount > STRATIFIED_THRESHOLD;
+    const messages = sampled
+      ? await extractStratifiedMessages(jsonlPath)
+      : await extractMessages(jsonlPath);
+    const summary = await generateFullSummary(messages, meta, project, sampled);
     await store.writeSummary(summary);
     scheduler.recordSummarized(sessionId, "full", messageCount);
     return summary;

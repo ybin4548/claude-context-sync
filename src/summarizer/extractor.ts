@@ -63,6 +63,44 @@ export async function extractRecentMessages(
   return all.slice(-count);
 }
 
+const STRATIFIED_DEFAULTS = {
+  headCount: 20,
+  tailCount: 100,
+  cap: 300,
+};
+
+export async function extractStratifiedMessages(
+  jsonlPath: string,
+  options: Partial<typeof STRATIFIED_DEFAULTS> = {},
+): Promise<SessionMessage[]> {
+  const { headCount, tailCount, cap } = { ...STRATIFIED_DEFAULTS, ...options };
+  const all = await extractMessages(jsonlPath);
+
+  if (all.length <= cap) return all;
+
+  const head = all.slice(0, headCount);
+  const tail = all.slice(-tailCount);
+  const middlePool = all.slice(headCount, -tailCount);
+
+  const middleBudget = cap - headCount - tailCount;
+  const middleUserMessages = middlePool.filter((m) => m.type === "user");
+
+  let middle: SessionMessage[];
+  if (middleUserMessages.length <= middleBudget) {
+    middle = middleUserMessages;
+  } else {
+    middle = sampleEvenly(middleUserMessages, middleBudget);
+  }
+
+  return [...head, ...middle, ...tail];
+}
+
+function sampleEvenly<T>(arr: T[], count: number): T[] {
+  if (count >= arr.length) return arr;
+  const step = arr.length / count;
+  return Array.from({ length: count }, (_, i) => arr[Math.floor(i * step)]);
+}
+
 export async function countNewMessages(
   jsonlPath: string,
   since: string,

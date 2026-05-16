@@ -16,11 +16,19 @@ const SUMMARY_JSON_SCHEMA = `{
   "impactOnOtherSessions": ["다른 세션에 영향을 줄 수 있는 사항 (없으면 빈 배열)"]
 }`;
 
-function buildFullPrompt(messages: string, meta: SessionMeta): string {
+function buildFullPrompt(
+  messages: string,
+  meta: SessionMeta,
+  sampled = false,
+): string {
+  const sampledNote = sampled
+    ? "\n주의: 이 로그는 대용량 세션에서 구간 샘플링되었습니다. 초반(목표/설정) + 중간(user 지시) + 최근(현재 상태) 메시지입니다. 빠진 부분은 문맥으로 추론하세요.\n"
+    : "";
+
   return `다음은 Claude Code 세션의 대화 로그입니다.
 프로젝트 경로: ${meta.cwd}
 세션 ID: ${meta.sessionId}
-
+${sampledNote}
 아래 JSON 스키마에 맞게 구조화된 요약을 생성하세요. JSON만 출력하세요.
 
 ${SUMMARY_JSON_SCHEMA}
@@ -77,9 +85,10 @@ export async function generateFullSummary(
   messages: SessionMessage[],
   meta: SessionMeta,
   project: string,
+  sampled = false,
 ): Promise<SessionSummary> {
   const formatted = formatMessages(messages);
-  const prompt = buildFullPrompt(formatted, meta);
+  const prompt = buildFullPrompt(formatted, meta, sampled);
   const raw = await callClaude(prompt);
   const summary = parseSummaryJson(raw);
 
