@@ -13,14 +13,97 @@ import {
   generateFullSummary,
   generateIncrementalSummary,
 } from "../summarizer/generator.js";
-import type { SessionMeta, SyncConfig } from "../types.js";
+import type { SessionMeta, SessionSummary, SyncConfig } from "../types.js";
 import { DEFAULT_CONFIG, STRATIFIED_THRESHOLD, VERSION } from "../types.js";
+
+const CONCURRENCY_LIMIT = 3;
 
 export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
   const scheduler = new Scheduler(config);
   const watcher = new Watcher(scheduler, config);
   const store = new Store(config);
   let lastCleanupAt = 0;
+  const refreshLocks = new Map<string, Promise<SessionSummary | null>>();
+
+  function refreshIfNeeded(
+    sessionId: string,
+    meta: SessionMeta,
+  ): Promise<SessionSummary | null> {
+    const inflight = refreshLocks.get(sessionId);
+    if (inflight) return inflight;
+
+    const promise = doRefresh(sessionId, meta);
+    refreshLocks.set(sessionId, promise);
+    return promise.finally(() => refreshLocks.delete(sessionId));
+  }
+
+  async function doRefresh(
+    sessionId: string,
+    meta: SessionMeta,
+  ): Promise<SessionSummary | null> {
+    const project = meta.cwd;
+    const jsonlPath = watcher.getJsonlPath(sessionId, meta.cwd);
+
+    let allMessages;
+    try {
+      allMessages = await extractMessages(jsonlPath);
+    } catch {
+      return store.readSummary(sessionId);
+    }
+
+    const messageCount = allMessages.length;
+
+    if (!scheduler.getState(sessionId)) {
+      const existing = await store.readSummary(sessionId);
+      if (existing) {
+        scheduler.seedState(sessionId, messageCount, existing.incrementalCount);
+      }
+      scheduler.markStale(sessionId);
+    }
+
+    const strategy = scheduler.getStrategy(sessionId, messageCount);
+
+    if (strategy === "cached") {
+      return store.readSummary(sessionId);
+    }
+
+    try {
+      if (strategy === "full") {
+        const sampled = messageCount > STRATIFIED_THRESHOLD;
+        const messages = sampled
+          ? await extractStratifiedMessages(jsonlPath)
+          : allMessages;
+        const summary = await generateFullSummary(messages, meta, project, sampled);
+        await store.writeSummary(summary);
+        scheduler.recordSummarized(sessionId, "full", messageCount);
+        return summary;
+      }
+
+      const existing = await store.readSummary(sessionId);
+      if (existing) {
+        const newMsgCount = countNewMessagesFromArray(
+          allMessages,
+          existing.updatedAt,
+        );
+        const newMessages = allMessages.slice(-newMsgCount);
+        const summary = await generateIncrementalSummary(existing, newMessages);
+        await store.writeSummary(summary);
+        scheduler.recordSummarized(sessionId, "incremental", messageCount);
+        return summary;
+      }
+
+      const sampled = messageCount > STRATIFIED_THRESHOLD;
+      const messages = sampled
+        ? await extractStratifiedMessages(jsonlPath)
+        : allMessages;
+      const summary = await generateFullSummary(messages, meta, project, sampled);
+      await store.writeSummary(summary);
+      scheduler.recordSummarized(sessionId, "full", messageCount);
+      return summary;
+    } catch {
+      return store.readSummary(sessionId);
+    }
+  }
 
   const server = new McpServer({
     name: "claude-context-sync",
@@ -73,13 +156,7 @@ export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
         };
       }
 
-      const summary = await refreshIfNeeded(
-        sessionId,
-        meta,
-        scheduler,
-        store,
-        watcher,
-      );
+      const summary = await refreshIfNeeded(sessionId, meta);
 
       return {
         content: [
@@ -104,11 +181,14 @@ export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
         ? sessions.filter((s) => s.cwd === project)
         : sessions;
 
-      const summaries = await Promise.all(
-        filtered.map((meta) =>
-          refreshIfNeeded(meta.sessionId, meta, scheduler, store, watcher),
-        ),
-      );
+      const summaries: (SessionSummary | null)[] = [];
+      for (let i = 0; i < filtered.length; i += CONCURRENCY_LIMIT) {
+        const batch = filtered.slice(i, i + CONCURRENCY_LIMIT);
+        const results = await Promise.all(
+          batch.map((meta) => refreshIfNeeded(meta.sessionId, meta)),
+        );
+        summaries.push(...results);
+      }
 
       const result = summaries
         .filter((s): s is NonNullable<typeof s> => s !== null)
@@ -126,68 +206,6 @@ export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
   );
 
   return { server, watcher, scheduler, store };
-}
-
-async function refreshIfNeeded(
-  sessionId: string,
-  meta: SessionMeta,
-  scheduler: Scheduler,
-  store: Store,
-  watcher: Watcher,
-) {
-  const project = meta.cwd;
-  const jsonlPath = watcher.getJsonlPath(sessionId, meta.cwd);
-
-  let allMessages;
-  try {
-    allMessages = await extractMessages(jsonlPath);
-  } catch {
-    return store.readSummary(sessionId);
-  }
-
-  const messageCount = allMessages.length;
-  const strategy = scheduler.getStrategy(sessionId, messageCount);
-
-  if (strategy === "cached") {
-    return store.readSummary(sessionId);
-  }
-
-  try {
-    if (strategy === "full") {
-      const sampled = messageCount > STRATIFIED_THRESHOLD;
-      const messages = sampled
-        ? await extractStratifiedMessages(jsonlPath)
-        : allMessages;
-      const summary = await generateFullSummary(messages, meta, project, sampled);
-      await store.writeSummary(summary);
-      scheduler.recordSummarized(sessionId, "full", messageCount);
-      return summary;
-    }
-
-    const existing = await store.readSummary(sessionId);
-    if (existing) {
-      const newMsgCount = countNewMessagesFromArray(
-        allMessages,
-        existing.updatedAt,
-      );
-      const newMessages = allMessages.slice(-newMsgCount);
-      const summary = await generateIncrementalSummary(existing, newMessages);
-      await store.writeSummary(summary);
-      scheduler.recordSummarized(sessionId, "incremental", messageCount);
-      return summary;
-    }
-
-    const sampled = messageCount > STRATIFIED_THRESHOLD;
-    const messages = sampled
-      ? await extractStratifiedMessages(jsonlPath)
-      : allMessages;
-    const summary = await generateFullSummary(messages, meta, project, sampled);
-    await store.writeSummary(summary);
-    scheduler.recordSummarized(sessionId, "full", messageCount);
-    return summary;
-  } catch {
-    return store.readSummary(sessionId);
-  }
 }
 
 export async function startServer(config: SyncConfig = DEFAULT_CONFIG) {

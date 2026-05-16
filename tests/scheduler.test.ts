@@ -63,6 +63,26 @@ describe("Scheduler", () => {
     expect(s.getStrategy("s1", 10)).toBe("cached");
   });
 
+  it("seedState는 기존 요약 상태를 복원", () => {
+    const s = new Scheduler(config);
+    s.seedState("s1", 500, 2);
+    s.markStale("s1");
+
+    // lastMessageCount=500, currentMessageCount=500 → newMessages=0 < trigger → cached
+    expect(s.getStrategy("s1", 500)).toBe("cached");
+
+    // 새 메시지 추가되면 incremental (incrementalCount=2 < fullAfter=4)
+    expect(s.getStrategy("s1", 510)).toBe("incremental");
+  });
+
+  it("seedState 후 incrementalCount가 fullAfter 이상이면 full", () => {
+    const s = new Scheduler(config);
+    s.seedState("s1", 500, 4);
+    s.markStale("s1");
+
+    expect(s.getStrategy("s1", 510)).toBe("full");
+  });
+
   it("서로 다른 세션은 독립적으로 관리", () => {
     const s = new Scheduler(config);
     s.markStale("s1");

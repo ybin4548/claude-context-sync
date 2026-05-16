@@ -54,12 +54,12 @@ ${SUMMARY_JSON_SCHEMA}
 ${newMessages}`;
 }
 
-function callClaude(prompt: string): Promise<string> {
+function callClaude(prompt: string, timeoutMs = 30_000): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       "claude",
       ["-p", "--output-format", "text", "--model", "haiku"],
-      { maxBuffer: 1024 * 1024 * 10 },
+      { maxBuffer: 1024 * 1024 * 10, timeout: timeoutMs },
       (error, stdout, stderr) => {
         if (error) {
           reject(new Error(`claude -p failed: ${stderr || error.message}`));
@@ -73,12 +73,41 @@ function callClaude(prompt: string): Promise<string> {
   });
 }
 
+function findFirstJsonObject(raw: string): string {
+  const start = raw.indexOf("{");
+  if (start === -1) throw new Error("No JSON found in claude -p response");
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = start; i < raw.length; i++) {
+    const ch = raw[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    if (ch === "}") depth--;
+    if (depth === 0) return raw.slice(start, i + 1);
+  }
+  throw new Error("Unbalanced JSON in claude -p response");
+}
+
 function parseSummaryJson(
   raw: string,
 ): SessionSummary["summary"] {
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("No JSON found in claude -p response");
-  return JSON.parse(jsonMatch[0]) as SessionSummary["summary"];
+  const json = findFirstJsonObject(raw);
+  return JSON.parse(json) as SessionSummary["summary"];
 }
 
 export async function generateFullSummary(

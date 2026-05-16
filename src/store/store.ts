@@ -5,7 +5,8 @@ import type { SessionSummary, IndexEntry, SyncConfig } from "../types.js";
 import { DEFAULT_CONFIG } from "../types.js";
 
 function resolvePath(path: string): string {
-  return path.startsWith("~") ? path.replace("~", homedir()) : path;
+  if (path === "~") return homedir();
+  return path.startsWith("~/") ? path.replace("~/", `${homedir()}/`) : path;
 }
 
 export class Store {
