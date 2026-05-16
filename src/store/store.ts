@@ -5,7 +5,8 @@ import type { SessionSummary, IndexEntry, SyncConfig } from "../types.js";
 import { DEFAULT_CONFIG } from "../types.js";
 
 function resolvePath(path: string): string {
-  return path.startsWith("~") ? path.replace("~", homedir()) : path;
+  if (path === "~") return homedir();
+  return path.startsWith("~/") ? path.replace("~/", `${homedir()}/`) : path;
 }
 
 export class Store {
@@ -84,14 +85,30 @@ export class Store {
   async cleanup(activeSessionIds: Set<string>): Promise<string[]> {
     const index = await this.readIndex();
     const removed: string[] = [];
+    const kept: IndexEntry[] = [];
 
     for (const entry of index) {
-      if (!activeSessionIds.has(entry.sessionId)) {
-        await this.deleteSummary(entry.sessionId);
+      if (activeSessionIds.has(entry.sessionId)) {
+        kept.push(entry);
+      } else {
         removed.push(entry.sessionId);
       }
     }
 
+    if (removed.length === 0) return removed;
+
+    await Promise.all(
+      removed.map((sessionId) => {
+        const mdPath = join(this.sessionsDir, `${sessionId}-summary.md`);
+        const dataPath = join(this.sessionsDir, `${sessionId}.json`);
+        return Promise.all([
+          unlink(mdPath).catch(() => {}),
+          unlink(dataPath).catch(() => {}),
+        ]);
+      }),
+    );
+
+    await writeFile(this.indexPath, JSON.stringify(kept, null, 2), "utf-8");
     return removed;
   }
 

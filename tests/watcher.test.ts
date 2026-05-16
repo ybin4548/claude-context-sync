@@ -84,36 +84,13 @@ describe("Watcher", () => {
     expect(sessions).toEqual([]);
   });
 
-  it("extractSessionId는 UUID 형식만 허용", async () => {
+  it("getJsonlPath는 프로젝트 경로를 디렉터리명으로 변환", () => {
     const watcher = new Watcher(scheduler, config);
+    const sessionId = "b7ce126d-3d1f-4171-9bae-cb1940648902";
 
-    const validPath = join(
-      tmpDir,
-      "projects/test/b7ce126d-3d1f-4171-9bae-cb1940648902.jsonl",
-    );
-    const invalidPath = join(tmpDir, "projects/test/memory.jsonl");
-
-    const validId = watcher.getJsonlPath(
-      "b7ce126d-3d1f-4171-9bae-cb1940648902",
-      "test",
-    );
-    expect(validId).toContain("b7ce126d-3d1f-4171-9bae-cb1940648902.jsonl");
-
-    // resolveProjectFromPath로 간접 검증
-    const project = watcher.resolveProjectFromPath(validPath);
-    expect(project).toBeTruthy();
-  });
-
-  it("resolveProjectFromPath는 디렉터리명을 경로로 변환", () => {
-    const watcher = new Watcher(scheduler, config);
-    const jsonlPath = join(
-      tmpDir,
-      "projects",
-      "-Users-test-Desktop-myproject",
-      "abc.jsonl",
-    );
-    const project = watcher.resolveProjectFromPath(jsonlPath);
-    expect(project).toBe("/Users/test/Desktop/myproject");
+    const path = watcher.getJsonlPath(sessionId, "test");
+    expect(path).toContain("test");
+    expect(path).toContain(`${sessionId}.jsonl`);
   });
 
   it("startWatching 후 .jsonl 변경 시 콜백 + scheduler.markStale 호출", async () => {

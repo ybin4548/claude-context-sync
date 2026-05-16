@@ -55,6 +55,17 @@ export class Scheduler {
     }
   }
 
+  seedState(
+    sessionId: string,
+    messageCount: number,
+    incrementalCount: number,
+  ): void {
+    const state = this.getOrCreate(sessionId);
+    state.lastMessageCount = messageCount;
+    state.incrementalCount = incrementalCount;
+    state.lastSummarizedAt = new Date().toISOString();
+  }
+
   getState(sessionId: string): SessionState | undefined {
     return this.states.get(sessionId);
   }
