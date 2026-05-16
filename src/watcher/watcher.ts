@@ -98,12 +98,6 @@ export class Watcher {
     return join(this.projectsDir, projectDir, `${sessionId}.jsonl`);
   }
 
-  resolveProjectFromPath(jsonlPath: string): string {
-    const relative = jsonlPath.slice(this.projectsDir.length + 1);
-    const projectDir = relative.split("/")[0];
-    return projectDir.replace(/^-/, "/").replace(/-/g, "/");
-  }
-
   private extractSessionId(filePath: string): string | null {
     const file = basename(filePath, ".jsonl");
     const uuidPattern =

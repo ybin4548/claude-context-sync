@@ -101,11 +101,20 @@ function sampleEvenly<T>(arr: T[], count: number): T[] {
   return Array.from({ length: count }, (_, i) => arr[Math.floor(i * step)]);
 }
 
+export function countNewMessagesFromArray(
+  messages: SessionMessage[],
+  since: string,
+): number {
+  const sinceTime = new Date(since).getTime();
+  return messages.filter(
+    (m) => new Date(m.timestamp).getTime() > sinceTime,
+  ).length;
+}
+
 export async function countNewMessages(
   jsonlPath: string,
   since: string,
 ): Promise<number> {
   const all = await extractMessages(jsonlPath);
-  const sinceTime = new Date(since).getTime();
-  return all.filter((m) => new Date(m.timestamp).getTime() > sinceTime).length;
+  return countNewMessagesFromArray(all, since);
 }
