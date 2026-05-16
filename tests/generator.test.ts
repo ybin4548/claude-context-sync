@@ -103,4 +103,23 @@ describe("generator", () => {
       "No JSON found",
     );
   });
+
+  it("parseSummaryJson은 첫 번째 완전한 JSON 객체를 파싱", () => {
+    const input = `설명입니다:\n${mockSummaryJson}\n추가 텍스트`;
+    const result = _parseSummaryJson(input);
+    expect(result.task).toBe("테스트 기능 구현");
+  });
+
+  it("parseSummaryJson은 중괄호가 포함된 문자열 값을 처리", () => {
+    const json = JSON.stringify({
+      task: "fix {bug} in code",
+      changedFiles: [],
+      decisions: [],
+      currentState: "완료",
+      blockers: [],
+      impactOnOtherSessions: [],
+    });
+    const result = _parseSummaryJson(`Here: ${json}`);
+    expect(result.task).toBe("fix {bug} in code");
+  });
 });
