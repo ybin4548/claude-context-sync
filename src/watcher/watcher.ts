@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import type { SessionMeta, SyncConfig } from "../types.js";
 import { DEFAULT_CONFIG } from "../types.js";
 import { Scheduler } from "./scheduler.js";
+import { FileTracker } from "./file-tracker.js";
 
 export type SessionChangeCallback = (
   sessionId: string,
@@ -15,14 +16,17 @@ export class Watcher {
   private readonly projectsDir: string;
   private readonly sessionsDir: string;
   private readonly scheduler: Scheduler;
+  readonly fileTracker: FileTracker;
   private readonly callbacks: SessionChangeCallback[] = [];
   private fsWatcher: FSWatcher | null = null;
+  private sessionMetaCache = new Map<string, string>();
 
   constructor(scheduler: Scheduler, config: SyncConfig = DEFAULT_CONFIG) {
     const claudeDir = config.claudeDir.replace("~", homedir());
     this.projectsDir = join(claudeDir, "projects");
     this.sessionsDir = join(claudeDir, "sessions");
     this.scheduler = scheduler;
+    this.fileTracker = new FileTracker(config);
   }
 
   async startWatching(): Promise<void> {
@@ -40,6 +44,7 @@ export class Watcher {
       if (!sessionId) return;
 
       this.scheduler.markStale(sessionId);
+      this.trackFileChanges(sessionId, filePath);
       for (const cb of this.callbacks) {
         cb(sessionId, filePath);
       }
@@ -96,6 +101,29 @@ export class Watcher {
   getJsonlPath(sessionId: string, project: string): string {
     const projectDir = project.replace(/\//g, "-");
     return join(this.projectsDir, projectDir, `${sessionId}.jsonl`);
+  }
+
+  private trackFileChanges(sessionId: string, jsonlPath: string): void {
+    const project = this.sessionMetaCache.get(sessionId);
+    if (!project) {
+      this.getActiveSessions()
+        .then((sessions) => {
+          for (const s of sessions) {
+            this.sessionMetaCache.set(s.sessionId, s.cwd);
+          }
+          const cwd = this.sessionMetaCache.get(sessionId);
+          if (cwd) {
+            this.fileTracker
+              .processNewEntries(sessionId, jsonlPath, cwd)
+              .catch(() => {});
+          }
+        })
+        .catch(() => {});
+      return;
+    }
+    this.fileTracker
+      .processNewEntries(sessionId, jsonlPath, project)
+      .catch(() => {});
   }
 
   private extractSessionId(filePath: string): string | null {
