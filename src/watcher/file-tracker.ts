@@ -3,18 +3,24 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import type { SyncConfig } from "../types.js";
 import { DEFAULT_CONFIG } from "../types.js";
+import { resolveSymbol } from "./symbol-resolver.js";
+
+interface FileSymbol {
+  file: string;
+  symbols: string[];
+}
 
 interface TouchedSession {
   sessionId: string;
   project: string;
-  files: string[];
+  files: FileSymbol[];
   updatedAt: string;
 }
 
 interface ContentBlock {
   type: string;
   name?: string;
-  input?: { file_path?: string };
+  input?: { file_path?: string; old_string?: string };
 }
 
 interface JournalLine {
@@ -34,7 +40,7 @@ function resolveSyncDir(config: SyncConfig): string {
 
 export class FileTracker {
   private readonly touchedDir: string;
-  private readonly sessionFiles = new Map<string, Set<string>>();
+  private readonly sessionFileSymbols = new Map<string, Map<string, Set<string>>>();
   private readonly sessionOffsets = new Map<string, number>();
 
   constructor(config: SyncConfig = DEFAULT_CONFIG) {
@@ -62,8 +68,10 @@ export class FileTracker {
     const newContent = raw.slice(lastOffset);
     this.sessionOffsets.set(sessionId, raw.length);
 
-    const files = this.sessionFiles.get(sessionId) ?? new Set<string>();
+    const fileMap = this.sessionFileSymbols.get(sessionId) ?? new Map<string, Set<string>>();
     let changed = false;
+
+    const pendingSymbols: { filePath: string; snippet: string }[] = [];
 
     for (const line of newContent.split("\n")) {
       if (!line.trim()) continue;
@@ -80,9 +88,13 @@ export class FileTracker {
             WRITE_TOOLS.has(block.name) &&
             block.input?.file_path
           ) {
-            if (!files.has(block.input.file_path)) {
-              files.add(block.input.file_path);
+            const filePath = block.input.file_path;
+            if (!fileMap.has(filePath)) {
+              fileMap.set(filePath, new Set());
               changed = true;
+            }
+            if (block.input.old_string) {
+              pendingSymbols.push({ filePath, snippet: block.input.old_string });
             }
           }
         }
@@ -91,32 +103,60 @@ export class FileTracker {
       }
     }
 
+    for (const { filePath, snippet } of pendingSymbols) {
+      const symbol = await resolveSymbol(filePath, snippet);
+      if (symbol) {
+        const symbols = fileMap.get(filePath)!;
+        if (!symbols.has(symbol)) {
+          symbols.add(symbol);
+          changed = true;
+        }
+      }
+    }
+
     if (changed) {
-      this.sessionFiles.set(sessionId, files);
-      await this.writeTouchedFile(sessionId, project, files);
+      this.sessionFileSymbols.set(sessionId, fileMap);
+      await this.writeTouchedFile(sessionId, project, fileMap);
     }
   }
 
-  async getConflicts(project: string): Promise<{ file: string; sessionIds: string[] }[]> {
+  async getConflicts(project: string): Promise<{
+    file: string;
+    sessionIds: string[];
+    symbols: string[];
+  }[]> {
     const allTouched = await this.readAllTouched();
     const projectSessions = allTouched.filter((t) => t.project === project);
 
     if (projectSessions.length < 2) return [];
 
-    const fileToSessions = new Map<string, string[]>();
+    const fileToSessions = new Map<string, { sessionId: string; symbols: string[] }[]>();
     for (const session of projectSessions) {
-      for (const file of session.files) {
-        const list = fileToSessions.get(file) ?? [];
-        list.push(session.sessionId);
-        fileToSessions.set(file, list);
+      for (const entry of session.files) {
+        const list = fileToSessions.get(entry.file) ?? [];
+        list.push({ sessionId: session.sessionId, symbols: entry.symbols });
+        fileToSessions.set(entry.file, list);
       }
     }
 
-    const conflicts: { file: string; sessionIds: string[] }[] = [];
-    for (const [file, sessionIds] of fileToSessions) {
-      if (sessionIds.length >= 2) {
-        conflicts.push({ file, sessionIds });
+    const conflicts: { file: string; sessionIds: string[]; symbols: string[] }[] = [];
+    for (const [file, sessions] of fileToSessions) {
+      if (sessions.length < 2) continue;
+
+      const allSymbols = sessions.flatMap((s) => s.symbols);
+      const symbolCounts = new Map<string, number>();
+      for (const sym of allSymbols) {
+        symbolCounts.set(sym, (symbolCounts.get(sym) ?? 0) + 1);
       }
+      const sharedSymbols = [...symbolCounts.entries()]
+        .filter(([, count]) => count >= 2)
+        .map(([sym]) => sym);
+
+      conflicts.push({
+        file,
+        sessionIds: sessions.map((s) => s.sessionId),
+        symbols: sharedSymbols,
+      });
     }
 
     return conflicts;
@@ -126,7 +166,7 @@ export class FileTracker {
     sessionId: string,
     files: string[],
   ): Promise<string[]> {
-    const current = this.sessionFiles.get(sessionId);
+    const current = this.sessionFileSymbols.get(sessionId);
     const resolved: string[] = [];
 
     if (current) {
@@ -139,7 +179,7 @@ export class FileTracker {
     try {
       const raw = await readFile(touchedPath, "utf-8");
       const data = JSON.parse(raw) as TouchedSession;
-      data.files = data.files.filter((f) => !files.includes(f));
+      data.files = data.files.filter((f) => !files.includes(f.file));
       if (data.files.length === 0) {
         await unlink(touchedPath).catch(() => {});
       } else {
@@ -167,7 +207,7 @@ export class FileTracker {
   }
 
   async clearSession(sessionId: string): Promise<void> {
-    this.sessionFiles.delete(sessionId);
+    this.sessionFileSymbols.delete(sessionId);
     this.sessionOffsets.delete(sessionId);
     const touchedPath = join(this.touchedDir, `${sessionId}.json`);
     await unlink(touchedPath).catch(() => {});
@@ -194,13 +234,16 @@ export class FileTracker {
   private async writeTouchedFile(
     sessionId: string,
     project: string,
-    files: Set<string>,
+    fileMap: Map<string, Set<string>>,
   ): Promise<void> {
     await mkdir(this.touchedDir, { recursive: true });
     const data: TouchedSession = {
       sessionId,
       project,
-      files: [...files],
+      files: [...fileMap.entries()].map(([file, symbols]) => ({
+        file,
+        symbols: [...symbols],
+      })),
       updatedAt: new Date().toISOString(),
     };
     const filePath = join(this.touchedDir, `${sessionId}.json`);

@@ -132,7 +132,7 @@ export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
       const summaryMap = new Map(summaries.map((s) => [s.sessionId, s]));
 
       const projects = [...new Set(sessions.map((s) => s.cwd))];
-      const allConflicts = new Map<string, { file: string; sessionIds: string[] }[]>();
+      const allConflicts = new Map<string, { file: string; sessionIds: string[]; symbols: string[] }[]>();
       for (const project of projects) {
         const conflicts = await watcher.fileTracker.getConflicts(project);
         if (conflicts.length > 0) allConflicts.set(project, conflicts);
@@ -146,6 +146,7 @@ export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
           .map((c) => ({
             file: c.file,
             sessions: c.sessionIds.filter((id) => id !== s.sessionId),
+            ...(c.symbols.length > 0 && { symbols: c.symbols }),
           }));
         return {
           sessionId: s.sessionId,
@@ -189,6 +190,7 @@ export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
         .map((c) => ({
           file: c.file,
           sessions: c.sessionIds.filter((id) => id !== sessionId),
+          ...(c.symbols.length > 0 && { symbols: c.symbols }),
         }));
 
       const result = {
