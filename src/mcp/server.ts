@@ -126,13 +126,28 @@ export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
       const summaries = await store.listSummaries();
       const summaryMap = new Map(summaries.map((s) => [s.sessionId, s]));
 
+      const projects = [...new Set(sessions.map((s) => s.cwd))];
+      const allConflicts = new Map<string, { file: string; sessionIds: string[] }[]>();
+      for (const project of projects) {
+        const conflicts = await watcher.fileTracker.getConflicts(project);
+        if (conflicts.length > 0) allConflicts.set(project, conflicts);
+      }
+
       const items = sessions.map((s) => {
         const summary = summaryMap.get(s.sessionId);
+        const projectConflicts = allConflicts.get(s.cwd);
+        const myConflicts = projectConflicts
+          ?.filter((c) => c.sessionIds.includes(s.sessionId))
+          .map((c) => ({
+            file: c.file,
+            sessions: c.sessionIds.filter((id) => id !== s.sessionId),
+          }));
         return {
           sessionId: s.sessionId,
           project: s.cwd,
           status: s.status,
           task: summary?.summary.task ?? "(요약 없음)",
+          ...(myConflicts?.length && { conflicts: myConflicts }),
         };
       });
 
@@ -157,11 +172,27 @@ export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
       }
 
       const summary = await refreshIfNeeded(sessionId, meta);
+      if (!summary) {
+        return {
+          content: [{ type: "text" as const, text: "null" }],
+        };
+      }
+
+      const projectConflicts = await watcher.fileTracker.getConflicts(meta.cwd);
+      const myConflicts = projectConflicts
+        .filter((c) => c.sessionIds.includes(sessionId))
+        .map((c) => ({
+          file: c.file,
+          sessions: c.sessionIds.filter((id) => id !== sessionId),
+        }));
+
+      const result = {
+        ...summary.summary,
+        ...(myConflicts.length > 0 && { conflicts: myConflicts }),
+      };
 
       return {
-        content: [
-          { type: "text" as const, text: JSON.stringify(summary?.summary ?? null, null, 2) },
-        ],
+        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
       };
     },
   );
@@ -201,6 +232,33 @@ export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
 
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+      };
+    },
+  );
+
+  server.tool(
+    "resolve_conflicts",
+    "충돌이 해결된 파일을 추적 목록에서 제거합니다",
+    {
+      sessionId: z.string().describe("충돌을 해결한 세션 ID"),
+      files: z.array(z.string()).describe("해결된 파일 경로 배열"),
+    },
+    async ({ sessionId, files }) => {
+      const resolved = await watcher.fileTracker.resolveConflicts(
+        sessionId,
+        files,
+      );
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text:
+              resolved.length > 0
+                ? `${resolved.length}개 파일 충돌 해결됨: ${resolved.join(", ")}`
+                : "해결할 충돌이 없습니다",
+          },
+        ],
       };
     },
   );
