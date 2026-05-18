@@ -1,39 +1,70 @@
 #!/bin/sh
-TOUCHED_DIR="$HOME/.claude/context-sync/touched"
-REPORTED_FILE="$HOME/.claude/context-sync/reported-conflicts.json"
+SYNC_DIR="$HOME/.claude/context-sync"
+TOUCHED_DIR="$SYNC_DIR/touched"
+MESSAGES_DIR="$SYNC_DIR/messages"
+REPORTED_FILE="$SYNC_DIR/reported-conflicts.json"
 PROJECT_DIR="$(pwd)"
 
-[ -d "$TOUCHED_DIR" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
-CURRENT=$(
-  cat "$TOUCHED_DIR"/*.json 2>/dev/null \
-  | jq -rs --arg project "$PROJECT_DIR" '
-    [.[] | select(.project == $project)] |
-    if length < 2 then [] else
-      [ .[] | {sessionId, files: [.files[] | select(startswith($project + "/"))][]} ] |
-      group_by(.files) |
-      [ .[] | select(([.[].sessionId] | unique | length) >= 2) | .[0].files | sub($project + "/"; "") ]
-    end
-  ' 2>/dev/null
-)
+OUTPUT=""
 
-[ -z "$CURRENT" ] && exit 0
-[ "$CURRENT" = "[]" ] && exit 0
+# --- Conflict detection ---
+if [ -d "$TOUCHED_DIR" ]; then
+  CURRENT=$(
+    cat "$TOUCHED_DIR"/*.json 2>/dev/null \
+    | jq -rs --arg project "$PROJECT_DIR" '
+      [.[] | select(.project == $project)] |
+      if length < 2 then [] else
+        [ .[] | {sessionId, files: [.files[] | select(startswith($project + "/"))][]} ] |
+        group_by(.files) |
+        [ .[] | select(([.[].sessionId] | unique | length) >= 2) | .[0].files | sub($project + "/"; "") ]
+      end
+    ' 2>/dev/null
+  )
 
-REPORTED="[]"
-[ -f "$REPORTED_FILE" ] && REPORTED=$(cat "$REPORTED_FILE" 2>/dev/null || echo "[]")
+  if [ -n "$CURRENT" ] && [ "$CURRENT" != "[]" ]; then
+    REPORTED="[]"
+    [ -f "$REPORTED_FILE" ] && REPORTED=$(cat "$REPORTED_FILE" 2>/dev/null || echo "[]")
 
-NEW=$(echo "$CURRENT" | jq -r --argjson reported "$REPORTED" '
-  [.[] | select(. as $f | $reported | index($f) | not)]
-')
+    NEW=$(echo "$CURRENT" | jq -r --argjson reported "$REPORTED" '
+      [.[] | select(. as $f | $reported | index($f) | not)]
+    ')
 
-[ -z "$NEW" ] && exit 0
-[ "$NEW" = "[]" ] && exit 0
+    if [ -n "$NEW" ] && [ "$NEW" != "[]" ]; then
+      echo "$CURRENT" > "$REPORTED_FILE"
+      OUTPUT="⚠️ 충돌 감지:"
+      CONFLICT_LIST=$(echo "$NEW" | jq -r '.[]')
+      while IFS= read -r file; do
+        OUTPUT="$OUTPUT
+  - $file"
+      done <<< "$CONFLICT_LIST"
+    fi
+  fi
+fi
 
-echo "$CURRENT" > "$REPORTED_FILE"
+# --- Message detection ---
+if [ -d "$MESSAGES_DIR" ]; then
+  for session_dir in "$MESSAGES_DIR"/*/; do
+    [ -d "$session_dir" ] || continue
+    for msg_file in "$session_dir"*.json; do
+      [ -f "$msg_file" ] || continue
+      IS_UNREAD=$(jq -r 'select(.read == false and .project == $project) | .message' --arg project "$PROJECT_DIR" "$msg_file" 2>/dev/null)
+      if [ -n "$IS_UNREAD" ]; then
+        FROM=$(jq -r '.from' "$msg_file" 2>/dev/null)
+        SHORT_FROM=$(echo "$FROM" | cut -c1-8)
+        if [ -z "$OUTPUT" ]; then
+          OUTPUT="📨 새 메시지 (from: ${SHORT_FROM}...): $IS_UNREAD"
+        else
+          OUTPUT="$OUTPUT
+📨 새 메시지 (from: ${SHORT_FROM}...): $IS_UNREAD"
+        fi
+        jq '.read = true' "$msg_file" > "$msg_file.tmp" && mv "$msg_file.tmp" "$msg_file"
+      fi
+    done
+  done
+fi
 
-echo "⚠️ 충돌 감지:"
-echo "$NEW" | jq -r '.[]' | while IFS= read -r file; do
-  echo "  - $file"
-done
+if [ -n "$OUTPUT" ]; then
+  echo "$OUTPUT"
+fi

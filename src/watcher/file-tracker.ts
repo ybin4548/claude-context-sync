@@ -173,6 +173,24 @@ export class FileTracker {
     await unlink(touchedPath).catch(() => {});
   }
 
+  async cleanup(activeSessionIds: Set<string>): Promise<string[]> {
+    const removed: string[] = [];
+    try {
+      const files = await readdir(this.touchedDir);
+      for (const file of files) {
+        if (!file.endsWith(".json")) continue;
+        const sessionId = file.replace(".json", "");
+        if (!activeSessionIds.has(sessionId)) {
+          await this.clearSession(sessionId);
+          removed.push(sessionId);
+        }
+      }
+    } catch {
+      // directory doesn't exist
+    }
+    return removed;
+  }
+
   private async writeTouchedFile(
     sessionId: string,
     project: string,

@@ -13,6 +13,7 @@ import {
   generateFullSummary,
   generateIncrementalSummary,
 } from "../summarizer/generator.js";
+import { Messenger } from "../messaging/messenger.js";
 import type { SessionMeta, SessionSummary, SyncConfig } from "../types.js";
 import { DEFAULT_CONFIG, STRATIFIED_THRESHOLD, VERSION } from "../types.js";
 
@@ -22,6 +23,7 @@ export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
   const scheduler = new Scheduler(config);
   const watcher = new Watcher(scheduler, config);
   const store = new Store(config);
+  const messenger = new Messenger(config);
   let lastCleanupAt = 0;
   const refreshLocks = new Map<string, Promise<SessionSummary | null>>();
 
@@ -119,7 +121,10 @@ export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
       const now = Date.now();
       if (now - lastCleanupAt > 60_000) {
         const activeIds = new Set(sessions.map((s) => s.sessionId));
-        await store.cleanup(activeIds);
+        await Promise.all([
+          store.cleanup(activeIds),
+          watcher.fileTracker.cleanup(activeIds),
+        ]);
         lastCleanupAt = now;
       }
 
@@ -263,7 +268,82 @@ export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
     },
   );
 
-  return { server, watcher, scheduler, store };
+  server.tool(
+    "send_message",
+    "다른 세션에 메시지를 전달합니다. targetSessionId 생략 시 같은 프로젝트의 모든 세션에 브로드캐스트합니다.",
+    {
+      fromSessionId: z.string().describe("발신 세션 ID"),
+      message: z.string().describe("전달할 메시지"),
+      project: z.string().describe("프로젝트 경로"),
+      targetSessionId: z
+        .string()
+        .optional()
+        .describe("대상 세션 ID (생략 시 브로드캐스트)"),
+    },
+    async ({ fromSessionId, message, project, targetSessionId }) => {
+      if (targetSessionId) {
+        const msg = await messenger.send(
+          fromSessionId,
+          targetSessionId,
+          project,
+          message,
+        );
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `메시지 전송 완료 → ${targetSessionId} (id: ${msg.id})`,
+            },
+          ],
+        };
+      }
+
+      const sessions = await watcher.getActiveSessions();
+      const projectSessions = sessions
+        .filter((s) => s.cwd === project)
+        .map((s) => s.sessionId);
+      const count = await messenger.broadcast(
+        fromSessionId,
+        project,
+        message,
+        projectSessions,
+      );
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `브로드캐스트 완료 → ${count}개 세션에 전송`,
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    "get_messages",
+    "세션의 수신 메시지 이력을 조회합니다",
+    {
+      sessionId: z.string().describe("조회할 세션 ID"),
+      unreadOnly: z
+        .boolean()
+        .optional()
+        .describe("읽지 않은 메시지만 조회 (기본: false)"),
+    },
+    async ({ sessionId, unreadOnly }) => {
+      const messages = unreadOnly
+        ? await messenger.getUnread(sessionId)
+        : await messenger.getHistory(sessionId);
+
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(messages, null, 2) },
+        ],
+      };
+    },
+  );
+
+  return { server, watcher, scheduler, store, messenger };
 }
 
 export async function startServer(config: SyncConfig = DEFAULT_CONFIG) {
