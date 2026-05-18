@@ -44,24 +44,24 @@ if [ -d "$TOUCHED_DIR" ]; then
 fi
 
 # --- Message detection ---
-if [ -d "$MESSAGES_DIR" ]; then
-  for session_dir in "$MESSAGES_DIR"/*/; do
-    [ -d "$session_dir" ] || continue
-    for msg_file in "$session_dir"*.json; do
-      [ -f "$msg_file" ] || continue
-      IS_UNREAD=$(jq -r 'select(.read == false and .project == $project) | .message' --arg project "$PROJECT_DIR" "$msg_file" 2>/dev/null)
-      if [ -n "$IS_UNREAD" ]; then
-        FROM=$(jq -r '.from' "$msg_file" 2>/dev/null)
-        SHORT_FROM=$(echo "$FROM" | cut -c1-8)
-        if [ -z "$OUTPUT" ]; then
-          OUTPUT="📨 새 메시지 (from: ${SHORT_FROM}...): $IS_UNREAD"
-        else
-          OUTPUT="$OUTPUT
+MY_SESSION_ID="${CLAUDE_CODE_SESSION_ID:-}"
+MY_MSG_DIR="$MESSAGES_DIR/$MY_SESSION_ID"
+
+if [ -n "$MY_SESSION_ID" ] && [ -d "$MY_MSG_DIR" ]; then
+  for msg_file in "$MY_MSG_DIR"/*.json; do
+    [ -f "$msg_file" ] || continue
+    IS_UNREAD=$(jq -r 'select(.read == false and .project == $project) | .message' --arg project "$PROJECT_DIR" "$msg_file" 2>/dev/null)
+    if [ -n "$IS_UNREAD" ]; then
+      FROM=$(jq -r '.from' "$msg_file" 2>/dev/null)
+      SHORT_FROM=$(echo "$FROM" | cut -c1-8)
+      if [ -z "$OUTPUT" ]; then
+        OUTPUT="📨 새 메시지 (from: ${SHORT_FROM}...): $IS_UNREAD"
+      else
+        OUTPUT="$OUTPUT
 📨 새 메시지 (from: ${SHORT_FROM}...): $IS_UNREAD"
-        fi
-        jq '.read = true' "$msg_file" > "$msg_file.tmp" && mv "$msg_file.tmp" "$msg_file"
       fi
-    done
+      jq '.read = true' "$msg_file" > "$msg_file.tmp" && mv "$msg_file.tmp" "$msg_file"
+    fi
   done
 fi
 
