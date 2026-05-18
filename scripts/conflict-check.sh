@@ -16,9 +16,15 @@ if [ -d "$TOUCHED_DIR" ]; then
     | jq -rs --arg project "$PROJECT_DIR" '
       [.[] | select(.project == $project)] |
       if length < 2 then [] else
-        [ .[] | {sessionId, files: [.files[] | select(startswith($project + "/"))][]} ] |
-        group_by(.files) |
-        [ .[] | select(([.[].sessionId] | unique | length) >= 2) | .[0].files | sub($project + "/"; "") ]
+        [ .[] | {sessionId, files: [.files[] | select(.file | startswith($project + "/")) | {file: .file, symbols}]} ] |
+        [.[].files[]] |
+        group_by(.file) |
+        [ .[] | select(length >= 2) |
+          { file: (.[0].file | sub($project + "/"; "")),
+            symbols: ([.[].symbols[] // empty] | unique) } |
+          select(true)
+        ] |
+        [ .[] | if (.symbols | length) > 0 then .file + " (" + (.symbols | join(", ")) + ")" else .file end ]
       end
     ' 2>/dev/null
   )
