@@ -119,7 +119,10 @@ export function createServer(config: SyncConfig = DEFAULT_CONFIG) {
       const now = Date.now();
       if (now - lastCleanupAt > 60_000) {
         const activeIds = new Set(sessions.map((s) => s.sessionId));
-        await store.cleanup(activeIds);
+        await Promise.all([
+          store.cleanup(activeIds),
+          watcher.fileTracker.cleanup(activeIds),
+        ]);
         lastCleanupAt = now;
       }
 
