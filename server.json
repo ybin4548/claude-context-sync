@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.ybin4548/claude-context-sync",
   "title": "Claude Context Sync",
-  "description": "MCP server that automatically summarizes and shares context across parallel Claude Code sessions",
-  "version": "0.1.4",
+  "description": "MCP server that shares context, detects file conflicts, and enables messaging across parallel Claude Code sessions",
+  "version": "0.4.1",
   "repository": {
     "url": "https://github.com/ybin4548/claude-context-sync",
     "source": "github"
@@ -12,7 +12,7 @@
     {
       "registryType": "npm",
       "identifier": "claude-context-sync",
-      "version": "0.1.4",
+      "version": "0.4.1",
       "transport": {
         "type": "stdio"
       },
