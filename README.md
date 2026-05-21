@@ -146,6 +146,13 @@ Unsupported file types fall back to file-level conflict detection.
 - Claude Code CLI (`claude` command available)
 - `jq` (for conflict detection hook)
 
+## Feedback
+
+We'd love to hear from you! If you have feature requests, bug reports, or just want to share how you use claude-context-sync:
+
+- [GitHub Discussions](https://github.com/ybin4548/claude-context-sync/discussions) — ideas, questions, show & tell
+- [GitHub Issues](https://github.com/ybin4548/claude-context-sync/issues) — bug reports, feature requests
+
 ## Development
 
 ```bash

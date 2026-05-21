@@ -19,8 +19,16 @@
   "keywords": [
     "claude-code",
     "mcp",
+    "mcp-server",
+    "model-context-protocol",
     "context-sharing",
-    "ai-agent"
+    "context-sync",
+    "session-sync",
+    "parallel-sessions",
+    "conflict-detection",
+    "ai-agent",
+    "claude",
+    "anthropic"
   ],
   "files": [
     "dist",
