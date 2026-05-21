@@ -72,4 +72,4 @@ export const DEFAULT_CONFIG: SyncConfig = {
 
 export const STRATIFIED_THRESHOLD = 500;
 
-export const VERSION = "0.4.0";
+export const VERSION = "0.4.1";
